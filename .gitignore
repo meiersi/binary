@@ -8,3 +8,4 @@
 /benchmarks/builder
 /dist/*
 /tests/qc
+/cabal-dev/
