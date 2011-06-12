@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      : Data.Binary.Builder
@@ -48,6 +49,9 @@ module Data.Binary.Builder (
       -- ** Unicode
     , putCharUtf8
 
+    -- * Chunked encoding
+    , chunkedIntBE
+
   ) where
 
 import Data.Monoid
@@ -56,7 +60,12 @@ import qualified Data.ByteString      as S
 import qualified Data.ByteString.Lazy as L
 
 import Data.ByteString.Builder
+import Data.ByteString.Builder.Write
+import Data.ByteString.Builder.Internal as BI hiding (empty, append)
 import Data.ByteString.Builder.Char.Utf8
+
+import qualified System.IO.Write          as W
+import qualified System.IO.Write.Internal as W
 
 import Foreign
 
@@ -164,3 +173,91 @@ putWord64host = hostEndian
 {-# INLINE putCharUtf8 #-}
 putCharUtf8 :: Char -> Builder
 putCharUtf8 = utf8
+
+
+------------------------------------------------------------------------------
+-- Chunked output
+------------------------------------------------------------------------------
+
+-- TODO: Move to system-io-write and use conditinal compilation
+{-# INLINE intBE #-}
+intBE :: W.Write Int
+intBE = W.int32BE W.#. fromIntegral
+
+
+chunkedIntBE :: Builder -> Builder
+chunkedIntBE = (`mappend` chunkedIntBETerminator) . chunkedIntBEBody
+
+chunkedIntBETerminator :: Builder
+chunkedIntBETerminator = fromWrite intBE 0
+
+-- | Transform a builder such that it uses chunked HTTP transfer encoding.
+chunkedIntBEBody :: Builder -> Builder
+chunkedIntBEBody (Builder b) =
+    fromBuildStepCont encodingStep
+  where
+    finalStep !(BufRange op _) = return $ Done op ()
+
+    encodingStep k = go (b (BuildStep finalStep))
+      where
+        go innerStep !(BufRange op ope)
+          | outRemaining < minBufferSize = 
+              return $! bufferFull minBufferSize op (go innerStep)
+          | otherwise = do
+              let !brInner@(BufRange opInner _) = BufRange 
+                     (op  `plusPtr` beforeBufferOverhead  ) -- leave space for chunk header
+                     (ope `plusPtr` (-afterBufferOverhead)) -- leave space for bytestring size
+
+                  -- wraps the chunk, if it is non-empty, and returns the
+                  -- signal constructed with the correct end-of-data pointer
+                  {-# INLINE wrapChunk #-}
+                  wrapChunk :: Ptr Word8 -> (Ptr Word8 -> IO (BuildSignal a)) 
+                            -> IO (BuildSignal a)
+                  wrapChunk !opInner' mkSignal 
+                    | opInner' == opInner = mkSignal op
+                    | otherwise           = do
+                        _ <- W.runWrite intBE (opInner' `minusPtr` opInner) op
+                        mkSignal opInner'
+
+              -- execute inner builder with reduced boundaries
+              signal <- runBuildStep innerStep brInner
+              case signal of
+                Done opInner' _ ->
+                    wrapChunk opInner' $ \op' -> do
+                      let !br' = BufRange op' ope
+                      k br'
+
+                BufferFull minRequiredSize opInner' nextInnerStep ->
+                    wrapChunk opInner' $ \op' ->
+                      return $! bufferFull 
+                        (minRequiredSize + encodingOverhead) 
+                        op'
+                        (go nextInnerStep)  
+
+                InsertByteString opInner' bs nextInnerStep 
+                  | S.null bs ->                        -- flush
+                      wrapChunk opInner' $ \op' ->
+                        return $! BI.insertByteString 
+                          op' S.empty 
+                          (go nextInnerStep)
+
+                  | otherwise ->                        -- insert non-empty bytestring
+                      wrapChunk opInner' $ \op' -> do
+                        -- write length for inserted bytestring
+                        !op'' <- W.runWrite intBE (S.length bs) op'
+                        -- insert bytestring
+                        return $! BI.insertByteString op'' bs (go nextInnerStep)
+                  
+          where
+            -- overhead computation
+            beforeBufferOverhead = W.getBound intBE -- chunk size
+            afterBufferOverhead  = W.getBound intBE -- for a directly inserted bytestring
+
+            encodingOverhead = beforeBufferOverhead + afterBufferOverhead
+
+            minBufferSize = 1 + encodingOverhead
+
+            -- remaining and required space computation
+            outRemaining :: Int
+            outRemaining = ope `minusPtr` op
+
