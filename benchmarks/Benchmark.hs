@@ -1,7 +1,7 @@
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns, PackageImports #-}
 module Main (main) where
 
-import qualified Data.ByteString.Lazy as L
+import qualified "new-bytestring" Data.ByteString.Lazy as L
 import Data.Binary
 import Data.Binary.Put
 import Data.Binary.Get

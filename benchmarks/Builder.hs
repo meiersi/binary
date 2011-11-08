@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, ExistentialQuantification #-}
+{-# LANGUAGE CPP, PackageImports, ExistentialQuantification #-}
 
 #if defined(__GLASGOW_HASKELL__) && !defined(__HADDOCK__)
 #include "MachDeps.h"
@@ -11,9 +11,10 @@ import Control.Exception (evaluate)
 import Control.Monad.Trans (liftIO)
 import Criterion.Config
 import Criterion.Main hiding (run)
-import qualified Data.ByteString as S
-import qualified Data.ByteString.Char8 as C
-import qualified Data.ByteString.Lazy as L
+import qualified "new-bytestring" Data.ByteString as S
+import qualified "new-bytestring" Data.ByteString.Char8 as C
+import qualified "new-bytestring" Data.ByteString.Lazy as L
+import qualified "new-bytestring" Data.ByteString.Lazy.Builder.BasicEncoding as E
 import Data.Char (ord)
 import Data.Monoid (Monoid(mappend, mempty))
 import Data.Word (Word8)
@@ -71,8 +72,7 @@ largeByteString = S.pack word8s
 -- Benchmarks
 
 fromWord8s :: [Word8] -> Builder
-fromWord8s [] = mempty
-fromWord8s (x:xs) = singleton x <> fromWord8s xs
+fromWord8s = E.encodeListWithF E.word8
 
 from4Word8s :: [Word8] -> Builder
 from4Word8s [] = mempty
