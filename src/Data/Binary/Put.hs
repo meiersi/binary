@@ -2,12 +2,11 @@
 #if __GLASGOW_HASKELL__ >= 701
 {-# LANGUAGE Trustworthy #-}
 #endif
->>>>>>> master
-
 -----------------------------------------------------------------------------
 -- |
 -- Module      : Data.Binary.Put
--- Copyright   : Lennart Kolmodin
+-- Copyright   : Lennart Kolmodin, 
+--               2011 Simon Meier
 -- License     : BSD3-style (see LICENSE)
 -- 
 -- Maintainer  : Lennart Kolmodin <kolmodin@dtek.chalmers.se>
@@ -55,7 +54,7 @@ module Data.Binary.Put (
   ) where
 
 import qualified Data.Binary.Builder as B
-import qualified Data.ByteString.Builder.Internal as B
+import qualified Data.ByteString.Lazy.Builder.Internal as B
 
 import Data.Word
 import qualified Data.ByteString      as S
@@ -70,21 +69,10 @@ import Control.Applicative
 
 -- | The PutM type. A Writer monad over the efficient Builder monoid.
 newtype PutM a = Put { unPut :: B.Put a }
-  deriving( Functor, Monad )
+  deriving( Functor, Applicative, Monad )
 
 -- | Put merely lifts Builder into a Writer monad, applied to ().
 type Put = PutM ()
-
-{- TODO: Adapt to new construction
-#ifdef APPLICATIVE_IN_BASE
-instance Applicative PutM where
-        pure    = return
-        m <*> k = Put $
-            let PairS f w  = unPut m
-                PairS x w' = unPut k
-            in PairS (f x) (w `mappend` w')
-#endif
--}
 
 putBuilder :: B.Builder -> Put
 putBuilder = Put . B.putBuilder
@@ -92,7 +80,7 @@ putBuilder = Put . B.putBuilder
 
 -- | Run the 'Put' monad
 execPut :: PutM a -> B.Builder
-execPut = B.fromPut . unPut
+execPut = B.fromPut . (>> return ()) . unPut
 {-# INLINE execPut #-}
 
 -- | Run the 'Put' monad with a serialiser

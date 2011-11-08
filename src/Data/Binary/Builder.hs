@@ -52,9 +52,6 @@ module Data.Binary.Builder (
       -- ** Unicode
     , putCharUtf8
 
-    -- * Chunked encoding
-    , chunkedIntBE
-
   ) where
 
 import Data.Monoid
@@ -62,13 +59,9 @@ import Data.Monoid
 import qualified Data.ByteString      as S
 import qualified Data.ByteString.Lazy as L
 
-import Data.ByteString.Builder
-import Data.ByteString.Builder.Write
-import Data.ByteString.Builder.Internal as BI hiding (empty, append)
-import Data.ByteString.Builder.Char.Utf8
+import Data.ByteString.Lazy.Builder
+import Data.ByteString.Lazy.Builder.Extras
 
-import qualified System.IO.Write          as W
-import qualified System.IO.Write.Internal as W
 
 import Foreign
 
@@ -116,32 +109,32 @@ fromLazyByteString = lazyByteString
 -- | Write a Word16 in big endian format
 {-# INLINE putWord16be #-}
 putWord16be :: Word16 -> Builder
-putWord16be = bigEndian
+putWord16be = word16BE
 
 -- | Write a Word32 in big endian format
 {-# INLINE putWord32be #-}
 putWord32be :: Word32 -> Builder
-putWord32be = bigEndian
+putWord32be = word32BE
 
 -- | Write a Word64 in big endian format
 {-# INLINE putWord64be #-}
 putWord64be :: Word64 -> Builder
-putWord64be = bigEndian
+putWord64be = word64BE
 
 -- | Write a Word16 in little endian format
 {-# INLINE putWord16le #-}
 putWord16le :: Word16 -> Builder
-putWord16le = littleEndian
+putWord16le = word16LE
 
 -- | Write a Word32 in little endian format
 {-# INLINE putWord32le #-}
 putWord32le :: Word32 -> Builder
-putWord32le = littleEndian
+putWord32le = word32LE
 
 -- | Write a Word64 in little endian format
 {-# INLINE putWord64le #-}
 putWord64le :: Word64 -> Builder
-putWord64le = littleEndian
+putWord64le = word64LE
 
 -- | /O(1)./ A Builder taking a single native machine word. The word is
 -- written in host order, host endian form, for the machine you're on.
@@ -151,116 +144,28 @@ putWord64le = littleEndian
 --
 {-# INLINE putWordhost #-}
 putWordhost :: Word -> Builder
-putWordhost = hostEndian
+putWordhost = wordHost
 
 -- | Write a Word16 in native host order and host endianness.
 -- 2 bytes will be written, unaligned.
 {-# INLINE putWord16host #-}
 putWord16host :: Word16 -> Builder
-putWord16host = hostEndian
+putWord16host = word16Host
 
 -- | Write a Word32 in native host order and host endianness.
 -- 4 bytes will be written, unaligned.
 {-# INLINE putWord32host #-}
 putWord32host :: Word32 -> Builder
-putWord32host = hostEndian
+putWord32host = word32Host
 
 -- | Write a Word64 in native host order.
 -- On a 32 bit machine we write two host order Word32s, in big endian form.
 -- 8 bytes will be written, unaligned.
 {-# INLINE putWord64host #-}
 putWord64host :: Word64 -> Builder
-putWord64host = hostEndian
+putWord64host = word64Host
 
 -- | Write a character using UTF-8 encoding.
 {-# INLINE putCharUtf8 #-}
 putCharUtf8 :: Char -> Builder
-putCharUtf8 = utf8
-
-
-------------------------------------------------------------------------------
--- Chunked output
-------------------------------------------------------------------------------
-
--- TODO: Move to system-io-write and use conditinal compilation
-{-# INLINE intBE #-}
-intBE :: W.Write Int
-intBE = W.int32BE W.#. fromIntegral
-
-
-chunkedIntBE :: Builder -> Builder
-chunkedIntBE = (`mappend` chunkedIntBETerminator) . chunkedIntBEBody
-
-chunkedIntBETerminator :: Builder
-chunkedIntBETerminator = fromWrite intBE 0
-
--- | Transform a builder such that it uses chunked HTTP transfer encoding.
-chunkedIntBEBody :: Builder -> Builder
-chunkedIntBEBody (Builder b) =
-    fromBuildStepCont encodingStep
-  where
-    finalStep !(BufRange op _) = return $ Done op ()
-
-    encodingStep k = go (b (BuildStep finalStep))
-      where
-        go innerStep !(BufRange op ope)
-          | outRemaining < minBufferSize = 
-              return $! bufferFull minBufferSize op (go innerStep)
-          | otherwise = do
-              let !brInner@(BufRange opInner _) = BufRange 
-                     (op  `plusPtr` beforeBufferOverhead  ) -- leave space for chunk header
-                     (ope `plusPtr` (-afterBufferOverhead)) -- leave space for bytestring size
-
-                  -- wraps the chunk, if it is non-empty, and returns the
-                  -- signal constructed with the correct end-of-data pointer
-                  {-# INLINE wrapChunk #-}
-                  wrapChunk :: Ptr Word8 -> (Ptr Word8 -> IO (BuildSignal a)) 
-                            -> IO (BuildSignal a)
-                  wrapChunk !opInner' mkSignal 
-                    | opInner' == opInner = mkSignal op
-                    | otherwise           = do
-                        _ <- W.runWrite intBE (opInner' `minusPtr` opInner) op
-                        mkSignal opInner'
-
-              -- execute inner builder with reduced boundaries
-              signal <- runBuildStep innerStep brInner
-              case signal of
-                Done opInner' _ ->
-                    wrapChunk opInner' $ \op' -> do
-                      let !br' = BufRange op' ope
-                      k br'
-
-                BufferFull minRequiredSize opInner' nextInnerStep ->
-                    wrapChunk opInner' $ \op' ->
-                      return $! bufferFull 
-                        (minRequiredSize + encodingOverhead) 
-                        op'
-                        (go nextInnerStep)  
-
-                InsertByteString opInner' bs nextInnerStep 
-                  | S.null bs ->                        -- flush
-                      wrapChunk opInner' $ \op' ->
-                        return $! BI.insertByteString 
-                          op' S.empty 
-                          (go nextInnerStep)
-
-                  | otherwise ->                        -- insert non-empty bytestring
-                      wrapChunk opInner' $ \op' -> do
-                        -- write length for inserted bytestring
-                        !op'' <- W.runWrite intBE (S.length bs) op'
-                        -- insert bytestring
-                        return $! BI.insertByteString op'' bs (go nextInnerStep)
-                  
-          where
-            -- overhead computation
-            beforeBufferOverhead = W.getBound intBE -- chunk size
-            afterBufferOverhead  = W.getBound intBE -- for a directly inserted bytestring
-
-            encodingOverhead = beforeBufferOverhead + afterBufferOverhead
-
-            minBufferSize = 1 + encodingOverhead
-
-            -- remaining and required space computation
-            outRemaining :: Int
-            outRemaining = ope `minusPtr` op
-
+putCharUtf8 = charUtf8
