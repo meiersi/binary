@@ -2,6 +2,7 @@
 module Main (main) where
 
 import qualified "new-bytestring" Data.ByteString.Lazy as L
+import qualified "new-bytestring" Data.ByteString.Lazy.Builder.BasicEncoding as E
 import Data.Binary
 import Data.Binary.Put
 import Data.Binary.Get
@@ -31,7 +32,7 @@ main = do
   sequence_
     [ test wordSize chunkSize Host mb
     | wordSize  <- [1]
-    , chunkSize <- [16] --1,2,4,8,16]
+    , chunkSize <- [1, 16] --1,2,4,8,16]
     ]
 
   -- now Word16 .. Word64
@@ -196,11 +197,17 @@ doGet wordSize chunkSize end =
 
 ------------------------------------------------------------------------
 
+-- this declarative version is faster
+putWord8N1 bytes = 
+    putBuilder $ E.encodeListWithF E.word8 $ take bytes $ cycle [0..]
+
+{- than this imperative, Put-based one
 putWord8N1 bytes = loop 0 0
   where loop :: Word8 -> Int -> Put
         loop !s !n | n == bytes = return ()
                    | otherwise  = do putWord8 s
                                      loop (s+1) (n+1)
+-}
 
 putWord8N2 = loop 0
   where loop s n | s `seq` n `seq` False = undefined
