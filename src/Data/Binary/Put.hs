@@ -1,5 +1,8 @@
 {-# LANGUAGE CPP, GeneralizedNewtypeDeriving #-}
--- TODO: Implement instances by ourselves
+#if __GLASGOW_HASKELL__ >= 701
+{-# LANGUAGE Trustworthy #-}
+#endif
+>>>>>>> master
 
 -----------------------------------------------------------------------------
 -- |

@@ -49,8 +49,7 @@ library
                    Data.Binary.Get,
                    Data.Binary.Builder
 
-  extensions:      CPP,
-                   FlexibleContexts
+  extensions:      FlexibleContexts
 
   ghc-options:     -O2 -Wall -fliberate-case-threshold=1000
 

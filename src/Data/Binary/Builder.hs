@@ -1,4 +1,7 @@
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP, BangPatterns #-}
+#if __GLASGOW_HASKELL__ >= 701
+{-# LANGUAGE Safe #-}
+#endif
 -----------------------------------------------------------------------------
 -- |
 -- Module      : Data.Binary.Builder
