@@ -4,7 +4,9 @@ module Main (main) where
 import qualified Data.ByteString.Lazy as L
 import Data.Binary
 import Data.Binary.Put
+import Data.Binary.Builder (singleton)
 import Data.Binary.Get
+import Data.Foldable (foldMap)
 
 import Control.Exception
 import System.CPUTime
@@ -31,7 +33,7 @@ main = do
   sequence_
     [ test wordSize chunkSize Host mb
     | wordSize  <- [1]
-    , chunkSize <- [16] --1,2,4,8,16]
+    , chunkSize <- [1, 16] --1,2,4,8,16]
     ]
 
   -- now Word16 .. Word64
@@ -196,11 +198,17 @@ doGet wordSize chunkSize end =
 
 ------------------------------------------------------------------------
 
+-- declarative style is twice as fast than Put
+putWord8N1 bytes = 
+    putBuilder $ foldMap singleton $ take bytes $ cycle [0..]
+
+{-
 putWord8N1 bytes = loop 0 0
   where loop :: Word8 -> Int -> Put
         loop !s !n | n == bytes = return ()
                    | otherwise  = do putWord8 s
                                      loop (s+1) (n+1)
+-}
 
 putWord8N2 = loop 0
   where loop s n | s `seq` n `seq` False = undefined
