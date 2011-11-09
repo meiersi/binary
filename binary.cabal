@@ -15,13 +15,17 @@ synopsis:        Binary serialisation for Haskell values using lazy ByteStrings
 category:        Data, Parsing
 stability:       provisional
 build-type:      Simple
-cabal-version:   >= 1.2
+cabal-version:   >= 1.6
 tested-with:     GHC ==6.4.2, GHC ==6.6.1, GHC ==6.8.0, GHC ==6.10.1
 extra-source-files: README index.html
 
 flag bytestring-in-base
 flag split-base
 flag applicative-in-base
+
+Source-repository head
+  Type: git
+  Location: https://github.com/kolmodin/binary.git
 
 library
   if flag(bytestring-in-base)
