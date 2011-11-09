@@ -5,7 +5,9 @@ import qualified "new-bytestring" Data.ByteString.Lazy as L
 import qualified "new-bytestring" Data.ByteString.Lazy.Builder.BasicEncoding as E
 import Data.Binary
 import Data.Binary.Put
+import Data.Binary.Builder (singleton)
 import Data.Binary.Get
+import Data.Foldable (foldMap)
 
 import Control.Exception
 import System.CPUTime
@@ -197,11 +199,28 @@ doGet wordSize chunkSize end =
 
 ------------------------------------------------------------------------
 
--- this declarative version is faster
+{- This is still slow for 'bytestring' builder, but fast for the
+ - new 'binary' builder, which allows GHC to optimize the loop
+ - good enough.
+
+-- declarative style is twice as fast than Put
+putWord8N1 bytes = 
+    putBuilder $ foldMap singleton $ take bytes $ cycle [0..]
+-}
+
+-- this declarative version works for the 'bytestring' builder
 putWord8N1 bytes = 
     putBuilder $ E.encodeListWithF E.word8 $ take bytes $ cycle [0..]
 
 {- than this imperative, Put-based one
+=======
+-- declarative style is twice as fast than Put
+putWord8N1 bytes = 
+    putBuilder $ foldMap singleton $ take bytes $ cycle [0..]
+-}
+
+{-
+>>>>>>> master
 putWord8N1 bytes = loop 0 0
   where loop :: Word8 -> Int -> Put
         loop !s !n | n == bytes = return ()
