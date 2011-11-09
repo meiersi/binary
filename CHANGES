@@ -1,0 +1,7 @@
+* 0.6.0.0
+
+- switched to new bytestring builder, which is provided in
+  bytestring-0.9.3 and upwards.
+
+  The only change is the definition of the 'Put' monad, which is
+  now provided by the 'bytestring' internals.
